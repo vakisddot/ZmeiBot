@@ -1,10 +1,9 @@
 import os
-import time
-import threading
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 from sesame_ai import SesameAI, SesameWebSocket, TokenManager
+from audio_sender import AudioSender
 from sesame_audio_source import SesameAudioSource
 
 load_dotenv()
@@ -24,32 +23,9 @@ id_token = token_manager.get_valid_token(force_new=True)
 
 # Set your preferred character for Sesame
 character = "Maya"
-ws = SesameWebSocket(id_token=id_token, character=character)
+ws: SesameWebSocket = None
 
-ws.set_connect_callback(lambda: print("Connected to SesameAI!"))
-ws.set_disconnect_callback(lambda: print("Disconnected from SesameAI"))
-
-# Example settings for sending audio to Sesame.
-INPUT_SAMPLE_RATE = 16000  # e.g., Sesame expects 16 kHz input.
-CHUNK = 1024  # Number of frames to simulate per send.
-
-def send_audio():
-    """
-    A stub function that sends example (silent) audio data to Sesame in a loop.
-    Replace this with your actual audio capture or processing as needed.
-    """
-    # Create an example audio chunk consisting of zeros.
-    # For example, 3200 bytes corresponds to 1600 samples of 16-bit audio.
-    example_audio = b'\x00' * 3200
-    while True:
-        try:
-            ws.send_audio_data(example_audio)
-        except Exception as e:
-            print("Error sending audio chunk to Sesame:", e)
-        time.sleep(CHUNK / INPUT_SAMPLE_RATE)
-
-# ----- Discord Bot Commands and Events -----
-
+#  Discord Bot Commands and Events
 @bot.event
 async def on_ready():
     print(f"Ready! Logged in as {bot.user}")
@@ -66,12 +42,17 @@ async def join(ctx):
 
     voice_channel = ctx.author.voice.channel
     permissions = voice_channel.permissions_for(ctx.guild.me)
-    
+
     if not permissions.connect or not permissions.speak:
         await ctx.reply("I need permissions to join and speak in your voice channel!")
         return
 
     try:
+        # Create a new Sesame Websocket
+        ws = SesameWebSocket(id_token=id_token, character=character)
+        ws.set_connect_callback(lambda: print("Connected to SesameAI!"))
+        ws.set_disconnect_callback(lambda: print("Disconnected from SesameAI"))
+
         # Connect to the voice channel.
         voice_client = await voice_channel.connect()
         voice_connections[ctx.guild.id] = voice_client
@@ -84,9 +65,8 @@ async def join(ctx):
         voice_client.play(sesame_audio)
         print("Started streaming Sesame output in the voice channel.")
 
-        # Start the sending thread (if using bidirectional audio).
-        input_thread = threading.Thread(target=send_audio, daemon=True)
-        input_thread.start()
+        audio_sender = AudioSender(ws)
+        audio_sender.start()
 
         await ctx.reply(f"Joined {voice_channel.name}!")
     except Exception as e:
@@ -103,5 +83,25 @@ async def leave(ctx):
         await ctx.reply("Left the voice channel!")
     else:
         await ctx.reply("I'm not in a voice channel!")
+
+@bot.command(name='miles')
+async def miles(ctx):
+    global character
+
+    if not ctx.guild.id in voice_connections:
+        character = "Miles"
+        await ctx.reply("Switched to Miles!")
+    else:
+        await ctx.reply("Cannot switch character while in a voice channel!")
+
+@bot.command(name='maya')
+async def miles(ctx):
+    global character
+
+    if not ctx.guild.id in voice_connections:
+        character = "Maya"
+        await ctx.reply("Switched to Maya!")
+    else:
+        await ctx.reply("Cannot switch character while in a voice channel!")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
