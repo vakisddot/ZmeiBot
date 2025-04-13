@@ -65,7 +65,7 @@ async def join(ctx):
         voice_client.play(sesame_audio)
         print("Started streaming Sesame output in the voice channel.")
 
-        audio_sender = AudioSender(ws)
+        audio_sender = AudioSender(voice_client, ws)
         audio_sender.start()
 
         await ctx.reply(f"Joined {voice_channel.name}!")
