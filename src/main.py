@@ -22,21 +22,14 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 voice_connections = {}
 
 # Initialize Sesame authentication and websocket
-api_client = SesameAI()
-token_manager = TokenManager(api_client, token_file="token.json")
-id_token = token_manager.get_valid_token()
+token_manager = TokenManager(SesameAI(), token_file="temp-sesame-token.json")
+id_token = token_manager.get_valid_token(force_new=True)
 
 character = "Maya"
 ws = SesameWebSocket(id_token=id_token, character=character)
 
-def on_connect():
-    print("Connected to SesameAI!")
-
-def on_disconnect():
-    print("Disconnected from SesameAI")
-
-ws.set_connect_callback(on_connect)
-ws.set_disconnect_callback(on_disconnect)
+ws.set_connect_callback(lambda: print("Connected to SesameAI!"))
+ws.set_disconnect_callback(lambda: print("Disconnected from SesameAI"))
 
 # Audio configuration for Discord (output side)
 TARGET_SAMPLE_RATE = 48000  # Discord expects 48 kHz PCM
@@ -226,9 +219,18 @@ async def join(ctx):
     try:
         voice_client = await voice_channel.connect()
         voice_connections[ctx.guild.id] = voice_client
+
         ws.connect()
         sesame_audio = SesameAudioSource(ws)
         voice_client.play(sesame_audio)
+
+        # voice_client.start_recording(
+        #     discord.sinks.WaveSink(),  # The sink type to use.
+        #     once_done,  # What to do once done.
+        #     ctx.channel  # The channel to disconnect from.
+        # )
+
+
         await ctx.reply(f"Joined {voice_channel.name} and streaming audio from Sesame!")
     except Exception as e:
         print("Error joining voice channel:", e)

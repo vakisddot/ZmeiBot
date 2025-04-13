@@ -1,3 +1,6 @@
+# No need to have this in the repo as its regenerated every time we start up the bot
+temp-sesame-token.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
