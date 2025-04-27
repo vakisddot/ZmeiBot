@@ -6,7 +6,7 @@ from sesame_ai import SesameAI, SesameWebSocket, TokenManager
 from audio_sender import AudioSender
 from sesame_audio_source import SesameAudioSource
 
-load_dotenv()
+load_dotenv(encoding="utf-16")
 
 # Discord Bot Configuration
 intents = discord.Intents.default()

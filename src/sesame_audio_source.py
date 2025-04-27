@@ -33,24 +33,13 @@ class SesameAudioSource(discord.AudioSource):
         print("Expecting", self.input_frame_samples, "samples per frame from input.")
 
     def buffer_audio(self):
-        """
-        Continuously reads audio chunks from Sesame and appends them to the accumulator.
-        Each chunk is converted into an int16 NumPy array and concatenated.
-        """
         while self.running:
-            # Try to get the next chunk (adjust timeout as needed)
-            audio_chunk = self.ws.get_next_audio_chunk(timeout=0.01)
-            if audio_chunk is not None:
-                # Convert the received bytes to int16 samples.
-                try:
-                    chunk_samples = np.frombuffer(audio_chunk, dtype=np.int16)
-                except Exception as e:
-                    print("Error converting audio chunk:", e)
-                    continue
+            audio_chunk = self.ws.get_next_audio_chunk(timeout=0.001)  # Shorter timeout
+            if audio_chunk:
+                # Directly append without waiting for full frames
+                chunk_samples = np.frombuffer(audio_chunk, dtype=np.int16)
                 with self.buffer_lock:
                     self.sample_buffer = np.concatenate((self.sample_buffer, chunk_samples))
-            else:
-                time.sleep(0.005)
 
     def read(self):
         """

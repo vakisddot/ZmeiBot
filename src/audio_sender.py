@@ -2,9 +2,10 @@ import discord
 import audioop
 import time
 import threading
+from pydub import AudioSegment
 
 # Constants to match the desired audio format
-CHUNK = 1024           # number of samples per chunk
+CHUNK = 320            # number of samples per chunk
 SAMPLE_WIDTH = 2       # 16-bit audio => 2 bytes per sample
 CHANNELS = 1           # mono audio
 RATE = 16000           # sample rate in Hz
@@ -19,6 +20,7 @@ class SesameSink(discord.sinks.WaveSink):
         self.chunk_interval = CHUNK / RATE  # seconds
         self.running = True
         self.audio_buffer = bytearray()
+        self.silence_threshold = 0.1
         
         # Start the unified audio sending thread
         self.audio_thread = threading.Thread(target=self._process_audio_buffer)
@@ -26,15 +28,21 @@ class SesameSink(discord.sinks.WaveSink):
         self.audio_thread.start()
 
     def write(self, data, user):
-        # Convert the incoming stereo audio to mono
+        # Convert stereo to mono
         mono_data = self.stereo_to_mono(data)
-        # Resample from Discord's typical 48000 Hz to our desired RATE (16000 Hz)
-        resampled_data, self.state = audioop.ratecv(mono_data, SAMPLE_WIDTH, CHANNELS, 48000, RATE, self.state)
+        # Resample using pydub (more efficient)
+        audio = AudioSegment(
+            mono_data,
+            sample_width=SAMPLE_WIDTH,
+            frame_rate=48000,
+            channels=1
+        )
+        audio = audio.set_frame_rate(RATE)
+        resampled_data = audio.raw_data
         
-        # Update the timestamp of last received audio
         self.last_audio_time = time.time()
-        
         self.audio_buffer.extend(resampled_data)
+
 
     def stereo_to_mono(self, data):
         mono = bytearray()
@@ -50,51 +58,30 @@ class SesameSink(discord.sinks.WaveSink):
         return bytes(mono)
 
     def _process_audio_buffer(self):
-        """Single thread that processes both real audio and silence."""
         chunk_bytes = CHUNK * SAMPLE_WIDTH
         silence_buffer = bytes(chunk_bytes)
-        next_send_time = time.time()
-        silence_threshold = self.chunk_interval * 2  # Time after which we consider it "silence"
         
         while self.running:
-            current_time = time.time()
+            # Always send a chunk every CHUNK/RATE seconds (e.g., 20ms)
+            next_send_time = time.time() + self.chunk_interval
             
-            # Time to send the next chunk?
-            if current_time < next_send_time:
-                time.sleep(0.001)  # Small sleep to prevent high CPU usage
-                continue
-            
-            # Set the next time to send audio
-            next_send_time = current_time + self.chunk_interval
-            
-            # Determine if we should send real audio or silence
-            send_silence = False
-            chunk_data = None
-            
-            # Check if we have real audio to send
+            # Prioritize real audio data
             if len(self.audio_buffer) >= chunk_bytes:
                 chunk_data = self.audio_buffer[:chunk_bytes]
                 self.audio_buffer = self.audio_buffer[chunk_bytes:]
             else:
-                # Buffer is empty or not enough data
-                time_since_audio = current_time - self.last_audio_time
-                if time_since_audio > silence_threshold:
-                    # It's been long enough since real audio, should send silence
-                    send_silence = True
-            
-            # If we need to send silence and didn't get real audio
-            if send_silence and not chunk_data:
+                # Send silence if no real audio is available
                 chunk_data = silence_buffer
-                print("SILENCE", current_time)
-            elif not chunk_data:
-                # No real audio but not time for silence yet, wait for more data
-                continue
-                
-            # Send the audio data (either real or silence)
+            
             try:
                 self.ws.send_audio_data(chunk_data)
             except Exception as e:
-                print(f"Error sending audio to Sesame: {e}")
+                print(f"Error sending audio: {e}")
+            
+            # Sleep precisely to maintain timing
+            sleep_time = next_send_time - time.time()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
     def cleanup(self):
         self.running = False
